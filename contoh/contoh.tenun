@@ -1,0 +1,14 @@
+impor "postgres";
+
+biar db: bulat = pg_sambung("localhost", 5432, "postgres", "", "postgres");
+kalau db < 0 {
+    cetak("gagal terhubung ke PostgreSQL");
+} lain {
+    cetak("terhubung ke PostgreSQL");
+    biar h: teks = pg_kueri(db, "SELECT 7, 'halo'");
+    cetak("jumlah baris:");
+    cetak(pg_jumlah_baris(h));
+    cetak(pg_ambil(h, 0, 0));
+    cetak(pg_ambil(h, 0, 1));
+    pg_tutup(db);
+}

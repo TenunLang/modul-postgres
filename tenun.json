@@ -1,0 +1,10 @@
+{
+  "nama": "postgres",
+  "versi": "0.1.0",
+  "deskripsi": "Klien PostgreSQL untuk Tenun (protokol v3, auth trust/cleartext/md5).",
+  "lisensi": "MIT",
+  "penulis": "TenunLang",
+  "berkas": "src/postgres.tenun",
+  "kataKunci": ["postgres", "postgresql", "basisdata", "klien", "sql"],
+  "butuh": {}
+}

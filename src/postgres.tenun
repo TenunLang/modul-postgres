@@ -1,0 +1,134 @@
+// Modul PostgreSQL untuk Tenun — protokol v3.
+// Auth: trust (0), cleartext (3), md5 (5). SCRAM (10) belum didukung.
+// Dibangun di atas builtin inti: sambung/kirim/terimaPasti, keByte/bacaInt, md5, potong.
+
+// Baca satu pesan: type(1) + panjang(4, big-endian) + body. Kembalikan pesan utuh.
+fungsi pg_baca(s: bulat): teks {
+    biar hdr: teks = terimaPasti(s, 5);
+    biar len: bulat = bacaInt(hdr, 1, 4, benar);
+    kembali hdr + terimaPasti(s, len - 4);
+}
+
+fungsi pg_pesan(tipe: bulat, body: teks): teks {
+    kembali keByte(tipe, 1, salah) + keByte(panjangTeks(body) + 4, 4, benar) + body;
+}
+
+// Sambung + autentikasi. Kembalikan handle soket, atau -1.
+fungsi pg_sambung(inang: teks, port: bulat, pengguna: teks, sandi: teks, db: teks): bulat {
+    biar s: bulat = sambung(inang, port);
+    biar nul: teks = keByte(0, 1, salah);
+
+    biar params: teks = "user" + nul + pengguna + nul + "database" + nul + db + nul + nul;
+    biar body: teks = keByte(196608, 4, benar) + params;       // protokol 3.0
+    kirim(s, keByte(panjangTeks(body) + 4, 4, benar) + body);  // StartupMessage (tanpa type)
+
+    selama benar {
+        biar m: teks = pg_baca(s);
+        biar tipe: bulat = bacaInt(m, 0, 1, salah);
+
+        kalau tipe == 69 {            // 'E' ErrorResponse
+            kembali -1;
+        }
+        kalau tipe == 90 {            // 'Z' ReadyForQuery -> siap
+            kembali s;
+        }
+        kalau tipe == 82 {            // 'R' Authentication
+            biar at: bulat = bacaInt(m, 5, 4, benar);
+            kalau at == 3 {           // cleartext
+                kirim(s, pg_pesan(112, sandi + nul));
+            }
+            kalau at == 5 {           // md5
+                biar salt: teks = potong(m, 9, 4);
+                biar inner: teks = md5(sandi + pengguna);
+                biar tok: teks = "md5" + md5(inner + salt) + nul;
+                kirim(s, pg_pesan(112, tok));
+            }
+            kalau at == 10 {          // SASL/SCRAM — belum didukung
+                kembali -1;
+            }
+        }
+    }
+    kembali s;
+}
+
+fungsi pg_tutup(s: bulat): kosong {
+    tutup(s);
+}
+
+// Jalankan query sederhana (protokol Query 'Q'). Rakit semua pesan sampai ReadyForQuery.
+fungsi pg_kueri(s: bulat, sql: teks): teks {
+    biar nul: teks = keByte(0, 1, salah);
+    kirim(s, pg_pesan(81, sql + nul));   // 'Q'
+
+    biar hasil: teks = "";
+    selama benar {
+        biar m: teks = pg_baca(s);
+        hasil = hasil + m;
+        kalau bacaInt(m, 0, 1, salah) == 90 {   // 'Z'
+            kembali hasil;
+        }
+    }
+    kembali hasil;
+}
+
+// ---- Parsing hasil ----
+// Lebar total satu pesan: type(1) + panjang(4 BE) yang sudah termasuk dirinya.
+fungsi pg_msg_lebar(d: teks, o: bulat): bulat {
+    kembali 1 + bacaInt(d, o + 1, 4, benar);
+}
+
+// Pesan galat (bila ada), kosong bila tidak.
+fungsi pg_galat(hasil: teks): teks {
+    biar off: bulat = 0;
+    selama off + 5 <= panjangTeks(hasil) {
+        kalau bacaInt(hasil, off, 1, salah) == 69 {   // 'E'
+            kembali potong(hasil, off + 5, bacaInt(hasil, off + 1, 4, benar));
+        }
+        off = off + pg_msg_lebar(hasil, off);
+    }
+    kembali "";
+}
+
+// Jumlah baris (pesan DataRow 'D').
+fungsi pg_jumlah_baris(hasil: teks): bulat {
+    biar off: bulat = 0;
+    biar n: bulat = 0;
+    selama off + 5 <= panjangTeks(hasil) {
+        kalau bacaInt(hasil, off, 1, salah) == 68 {   // 'D'
+            n = n + 1;
+        }
+        off = off + pg_msg_lebar(hasil, off);
+    }
+    kembali n;
+}
+
+// Nilai sel (baris, kolom) sebagai teks. NULL -> "".
+fungsi pg_ambil(hasil: teks, baris: bulat, kolom: bulat): teks {
+    biar off: bulat = 0;
+    biar r: bulat = 0;
+    selama off + 5 <= panjangTeks(hasil) {
+        kalau bacaInt(hasil, off, 1, salah) == 68 {   // 'D'
+            kalau r == baris {
+                biar p: bulat = off + 5;
+                p = p + 2;                            // lewati jumlah kolom (int16)
+                biar k: bulat = 0;
+                selama k < kolom {
+                    biar cl: bulat = bacaInt(hasil, p, 4, benar);
+                    p = p + 4;
+                    kalau cl != 4294967295 {          // bukan NULL (-1)
+                        p = p + cl;
+                    }
+                    k = k + 1;
+                }
+                biar fl: bulat = bacaInt(hasil, p, 4, benar);
+                kalau fl == 4294967295 {
+                    kembali "";
+                }
+                kembali potong(hasil, p + 4, fl);
+            }
+            r = r + 1;
+        }
+        off = off + pg_msg_lebar(hasil, off);
+    }
+    kembali "";
+}
