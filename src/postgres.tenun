@@ -71,6 +71,41 @@ fungsi pg_kueri(s: bulat, sql: teks): teks {
     kembali hasil;
 }
 
+// Query berparameter (extended protocol Parse/Bind/Execute). Aman dari injeksi:
+// nilai dikirim terpisah dari SQL. Placeholder pada sql: $1, $2, ...
+fungsi pg_jalan(s: bulat, sql: teks, params: []teks): teks {
+    biar nul: teks = keByte(0, 1, salah);
+
+    // Parse 'P': "" + sql + "" + int16(0)
+    biar parse_body: teks = nul + sql + nul + keByte(0, 2, benar);
+    biar pesan: teks = pg_pesan(80, parse_body);
+
+    // Bind 'B': portal "" + stmt "" + int16(0 fmt param) + int16(n) + (int32 len + nilai)... + int16(0 fmt hasil)
+    biar bind_body: teks = nul + nul + keByte(0, 2, benar) + keByte(panjang(params), 2, benar);
+    untuk i dari 0 sampai panjang(params) {
+        bind_body = bind_body + keByte(panjangTeks(params[i]), 4, benar) + params[i];
+    }
+    bind_body = bind_body + keByte(0, 2, benar);
+    pesan = pesan + pg_pesan(66, bind_body);
+
+    // Execute 'E': portal "" + int32(0)
+    pesan = pesan + pg_pesan(69, nul + keByte(0, 4, benar));
+    // Sync 'S'
+    pesan = pesan + pg_pesan(83, "");
+
+    kirim(s, pesan);
+
+    biar hasil: teks = "";
+    selama benar {
+        biar m: teks = pg_baca(s);
+        hasil = hasil + m;
+        kalau bacaInt(m, 0, 1, salah) == 90 {   // 'Z'
+            kembali hasil;
+        }
+    }
+    kembali hasil;
+}
+
 // ---- Parsing hasil ----
 // Lebar total satu pesan: type(1) + panjang(4 BE) yang sudah termasuk dirinya.
 fungsi pg_msg_lebar(d: teks, o: bulat): bulat {
