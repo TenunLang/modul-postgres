@@ -2,6 +2,8 @@
 // Auth: trust (0), cleartext (3), md5 (5). SCRAM (10) belum didukung.
 // Dibangun di atas builtin inti: sambung/kirim/terimaPasti, keByte/bacaInt, md5, potong.
 
+impor "./scram.tenun";
+
 // Baca satu pesan: type(1) + panjang(4, big-endian) + body. Kembalikan pesan utuh.
 fungsi pg_baca(s: bulat): teks {
     biar hdr: teks = terimaPasti(s, 5);
@@ -43,9 +45,13 @@ fungsi pg_sambung(inang: teks, port: bulat, pengguna: teks, sandi: teks, db: tek
                 biar tok: teks = "md5" + md5(inner + salt) + nul;
                 kirim(s, pg_pesan(112, tok));
             }
-            kalau at == 10 {          // SASL/SCRAM — belum didukung
-                kembali -1;
+            kalau at == 10 {          // SASL: mulai SCRAM-SHA-256
+                pg_scram_mulai(s);
             }
+            kalau at == 11 {          // SASLContinue: server-first
+                pg_scram_lanjut(s, sandi, potong(m, 9, panjangTeks(m) - 9));
+            }
+            // at == 12 (SASLFinal) diabaikan; lanjut ke AuthenticationOk + ReadyForQuery
         }
     }
     kembali s;

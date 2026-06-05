@@ -1,0 +1,43 @@
+// SCRAM-SHA-256 (RFC 5802 / 7677) untuk autentikasi PostgreSQL.
+// Memakai builtin kripto: pbkdf2, hmacSha256Raw, sha256Raw, xor, base64, dariBase64, acak.
+
+biar pg_nonce: teks = "";
+biar pg_cfirst_bare: teks = "";
+
+// ClientProof (base64) dari sandi, salt mentah, iterasi, dan AuthMessage.
+fungsi pg_scram_proof(sandi: teks, salt: teks, iter: bulat, authMessage: teks): teks {
+    biar sp: teks = pbkdf2(sandi, salt, iter);          // SaltedPassword
+    biar ck: teks = hmacSha256Raw(sp, "Client Key");     // ClientKey
+    biar sk: teks = sha256Raw(ck);                        // StoredKey
+    biar cs: teks = hmacSha256Raw(sk, authMessage);      // ClientSignature
+    kembali base64(xor(ck, cs));                          // ClientProof
+}
+
+// Langkah 1: kirim SASLInitialResponse (client-first).
+fungsi pg_scram_mulai(s: bulat): kosong {
+    pg_nonce = acak(18);
+    pg_cfirst_bare = "n=,r=" + pg_nonce;
+    biar cfirst: teks = "n,," + pg_cfirst_bare;
+    biar nul: teks = keByte(0, 1, salah);
+    biar body: teks = "SCRAM-SHA-256" + nul + keByte(panjangTeks(cfirst), 4, benar) + cfirst;
+    kirim(s, pg_pesan(112, body));   // 'p'
+}
+
+// Langkah 2: terima server-first, hitung proof, kirim client-final.
+fungsi pg_scram_lanjut(s: bulat, sandi: teks, serverFirst: teks): kosong {
+    biar bagian: []teks = pisah(serverFirst, ",");
+    biar rnonce: teks = "";
+    biar saltB64: teks = "";
+    biar iter: bulat = 4096;
+    untuk i dari 0 sampai panjang(bagian) {
+        biar f: teks = bagian[i];
+        kalau mulaiDengan(f, "r=") { rnonce = potong(f, 2, panjangTeks(f) - 2); }
+        kalau mulaiDengan(f, "s=") { saltB64 = potong(f, 2, panjangTeks(f) - 2); }
+        kalau mulaiDengan(f, "i=") { iter = keBulat(potong(f, 2, panjangTeks(f) - 2)); }
+    }
+    biar salt: teks = dariBase64(saltB64);
+    biar cfinal_np: teks = "c=biws,r=" + rnonce;
+    biar authMessage: teks = pg_cfirst_bare + "," + serverFirst + "," + cfinal_np;
+    biar proof: teks = pg_scram_proof(sandi, salt, iter, authMessage);
+    kirim(s, pg_pesan(112, cfinal_np + ",p=" + proof));   // 'p'
+}

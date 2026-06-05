@@ -39,14 +39,16 @@ kalau db < 0 {
 
 ## Autentikasi
 
-Didukung: `trust` (tanpa sandi), `cleartext`, `md5`. SCRAM-SHA-256 belum (memerlukan primitif kripto tambahan) — gunakan `md5`/`trust` di `pg_hba.conf` untuk sementara.
+Didukung: `trust`, `cleartext`, `md5`, dan **`scram-sha-256`** (default PostgreSQL modern). Implementasi SCRAM (RFC 5802/7677) memakai builtin kripto `pbkdf2`/`hmacSha256Raw`/`sha256Raw`/`xor`/`base64` — ClientProof terverifikasi terhadap vektor uji RFC 7677.
 
 ## Struktur
 
 ```
 modul-postgres/
   tenun.json
-  src/postgres.tenun
+  src/
+    postgres.tenun    koneksi, query (sederhana & berparameter), parser
+    scram.tenun       autentikasi SCRAM-SHA-256
   contoh/contoh.tenun
   .github/workflows/ci.yml
 ```
