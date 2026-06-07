@@ -22,3 +22,5 @@ jobs:
           printf 'impor "postgres";\n' > cek.tenun
           "$HOME/.tenun/bin/tenun" run cek.tenun
           echo "modul postgres valid (parse + pengecekan tipe lolos)"
+      - name: Uji unit
+        run: "$HOME/.tenun/bin/tenun" check .

@@ -1,0 +1,2 @@
+impor "../src/postgres.tenun";
+tegas(benar, "modul postgres termuat tanpa galat");
